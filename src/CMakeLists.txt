@@ -1,4 +1,13 @@
+include_directories("${PROJECT_SOURCE_DIR}/include/external")
+
 add_library(m17cxx INTERFACE)
+
+add_library(external Log.cpp UDPSocket.cpp)
+
+target_include_directories(m17cxx INTERFACE
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/external>
+    $<INSTALL_INTERFACE:include>
+    )
 
 target_include_directories(m17cxx INTERFACE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/m17cxx>
