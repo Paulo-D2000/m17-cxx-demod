@@ -18,9 +18,9 @@ sudo make install
 ```
 
 *Configure & Run M17Gateway*
-find ```M17Gateway/M17Gateway.ini``` and remove the ```#``` from ```#Startup=M17-M17_C```and change to the desired reflector name
- 
-start ```./M17Gateway/M17Gateway``` 
+Find ```M17Gateway/M17Gateway.ini```
+Remove # from ```#Startup=M17-M17_C```and change to the desired reflector name
+Start ```./M17Gateway/M17Gateway``` 
 
 
 *Run M17GatewayLink*
