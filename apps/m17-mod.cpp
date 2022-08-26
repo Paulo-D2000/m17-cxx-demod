@@ -343,12 +343,16 @@ void output_eot()
     switch(outputType) {
         case OutputType::SYM:
             {
-                std::array<int8_t, 48> out_symbols; // EOT symbols + FIR flush.
-                out_symbols.fill(0);
+                std::array<int8_t, 192> out_symbols;
                 auto symbols = bytes_to_symbols(EOT_SYNC);
-                for (size_t i = 0; i != symbols.size(); ++i)
+                auto repeat = out_symbols.size()/symbols.size();
+                for (size_t j = 0; j < repeat; j++)
                 {
-                    out_symbols[i] = symbols[i];
+                    auto offset = symbols.size()*j;
+                    for (size_t i = 0; i < symbols.size(); i++)
+                    {
+                        out_symbols[offset+i] = symbols[i];
+                    }
                 }
                 for (auto b : out_symbols) std::cout << b;
             }
