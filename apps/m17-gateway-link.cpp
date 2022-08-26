@@ -649,7 +649,7 @@ void M17GatewayLink::run(){
 				
 				if(packet.FN = 0x80){
 #ifndef WIN32				
-					system(ptt_on.c_str());
+					system(ptt_off.c_str());
 #endif
 				}
 
