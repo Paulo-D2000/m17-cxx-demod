@@ -647,9 +647,12 @@ void M17GatewayLink::run(){
 
                 std::copy(command.begin()+36,command.begin()+36+16,packet.Payload.begin()); // CODEC2 PAYLOAD
 				
-		if(packet.FN >= 0x8000){
+		if((packet.FN & 0x8000)){
+			if(mdebug){
+				std::cerr << "[DEBUG] PTT: OFF \n";
+                	}
 #ifndef WIN32				
-		system(ptt_off.c_str());
+			system(ptt_off.c_str());
 #endif
 		}
 
@@ -675,7 +678,8 @@ void M17GatewayLink::run(){
 				
                     if(mdebug){
 					    std::cerr << "[DEBUG] FN: " << packet.FN << " SRC: " << std::string(src.begin(), src.end()) << " DST: " << std::string(dst.begin(), dst.end()) << "\n";
-                    }
+					    std::cerr << "[DEBUG] PTT: ON \n";
+		    }
 					
 #ifndef WIN32				
 					system(ptt_on.c_str());
