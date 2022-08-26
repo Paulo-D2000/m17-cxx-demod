@@ -624,9 +624,6 @@ void M17GatewayLink::run(){
     // Main Loop
     while(1){
         std::fill(command.begin(),command.end(),'\0');
-        if(mdebug){
-			std::cerr << "[DEBUG] Socket Open\n";
-        }
 
         // Read M17 IP Packets from M17 Gateway
         int ret = m_socket->read(&command[0], 64U, sockaddr, sockaddrLen);
