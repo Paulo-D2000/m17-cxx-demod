@@ -27,6 +27,7 @@
 #include <thread>
 
 #include <array>
+#include <stdlib.h>
 #include <iostream>
 #include <iomanip>
 #include <atomic>
@@ -606,6 +607,9 @@ void M17GatewayLink::run(){
 	running = true;
 	
 	std::cerr << "M17GatewayLink running. ctrl-D to break." << std::endl;
+	
+	std::string ptt_on = "curl -s -d \"ron=1\" http://192.168.1.2/status.xml > /dev/null";
+	std::string ptt_off = "curl -s -d \"rof=1\" http://192.168.1.2/status.xml > /dev/null";
 
     // Start LICH Construction
     lich_segment = 0;
@@ -642,6 +646,12 @@ void M17GatewayLink::run(){
                 packet.FN =  fromchar(command[34],command[35]); // FRAME NUMBER
 
                 std::copy(command.begin()+36,command.begin()+36+16,packet.Payload.begin()); // CODEC2 PAYLOAD
+				
+				if(packet.FN = 0x80){
+#ifndef WIN32				
+					system(ptt_on.c_str());
+#endif
+				}
 
                 if(packet.FN == 0x00){
 
@@ -666,6 +676,10 @@ void M17GatewayLink::run(){
                     if(mdebug){
 					    std::cerr << "[DEBUG] FN: " << packet.FN << " SRC: " << std::string(src.begin(), src.end()) << " DST: " << std::string(dst.begin(), dst.end()) << "\n";
                     }
+					
+#ifndef WIN32				
+					system(ptt_on.c_str());
+#endif
 					
                     send_preamble();
                     lsf = send_lsf(std::string(src.begin(), src.end()),std::string(dst.begin(), dst.end()));
