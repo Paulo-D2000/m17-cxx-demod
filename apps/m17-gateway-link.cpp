@@ -647,7 +647,7 @@ void M17GatewayLink::run(){
 
                 std::copy(command.begin()+36,command.begin()+36+16,packet.Payload.begin()); // CODEC2 PAYLOAD
 				
-		if(packet.FN && 0x8000){
+		if(packet.FN >= 0x8000){
 #ifndef WIN32				
 		system(ptt_off.c_str());
 #endif
