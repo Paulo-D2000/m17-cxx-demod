@@ -26,4 +26,4 @@ Start ```./M17Gateway/M17Gateway```
 
 *Run M17GatewayLink*
 
-start ```./GatewayLink_M17Rtx-dev/build/m17-gateway-link.cpp | play -b 16 -r 48000 -c1 -t s16 -``` 
+start ```./GatewayLink_M17Rtx-dev/build/m17-gateway-link | play -b 16 -r 48000 -c1 -t s16 -``` 
