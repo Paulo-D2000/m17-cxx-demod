@@ -33,6 +33,7 @@
 #include <atomic>
 #include <optional>
 #include <mutex>
+#include <chrono>
 
 #include <cstdlib>
 
@@ -587,6 +588,10 @@ private:
     lich_t lich;
     uint8_t lich_segment;
     std::array<unsigned char, 64> command;
+    bool timeout;
+    std::chrono::steady_clock::time_point begin;
+    std::chrono::steady_clock::time_point now;
+    bool pttOn = false;
 };
 
 // setup
@@ -624,7 +629,6 @@ void M17GatewayLink::run(){
     // Main Loop
     while(1){
         std::fill(command.begin(),command.end(),'\0');
-
         // Read M17 IP Packets from M17 Gateway
         int ret = m_socket->read(&command[0], 64U, sockaddr, sockaddrLen);
 		if (ret > 0) {
@@ -651,6 +655,7 @@ void M17GatewayLink::run(){
 #ifndef WIN32				
 			system(ptt_off.c_str());
 #endif
+            pttOn = false;
 		}
 
                 if(packet.FN == 0x00){
@@ -681,6 +686,7 @@ void M17GatewayLink::run(){
 #ifndef WIN32				
 					system(ptt_on.c_str());
 #endif
+                    pttOn = true;
 					
                     send_preamble();
                     lsf = send_lsf(std::string(src.begin(), src.end()),std::string(dst.begin(), dst.end()));
@@ -694,9 +700,25 @@ void M17GatewayLink::run(){
                         std::copy(lich_segment.begin(), lich_segment.end(), lich[i].begin());
                     }
                 }
-				
+				begin = std::chrono::steady_clock::now();
 				std::copy(packet.Payload.begin(),packet.Payload.end(),payload.begin());
                 transmit();
+            }
+        }else{
+            if(pttOn){
+                now = std::chrono::steady_clock::now();
+                auto time = std::chrono::duration_cast<std::chrono::milliseconds>(now - begin).count();
+                if(time>1000){
+                    if(mdebug){
+                        std::cerr << "[DEBUG] [timeout] PTT: OFF \n";
+                    }
+#ifndef WIN32				
+                    system(ptt_off.c_str());
+#endif
+                    pttOn = false;
+                    begin = std::chrono::steady_clock::now();
+                    std::cerr << "Elapsed(ms)=" << time << std::endl;
+                }
             }
         }
     }
