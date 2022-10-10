@@ -23,7 +23,7 @@ This code requires the codec2-devel, boost-devel and gtest-devel packages be ins
 It also requires a modern C++20 compiler (GCC 8 minimum).
 
 ### Build Steps
-
+    git submodule update --init --recursive
     mkdir build
     cd build
     cmake ..
