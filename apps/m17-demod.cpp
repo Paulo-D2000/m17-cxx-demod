@@ -20,6 +20,11 @@
 #include <iostream>
 #include <vector>
 
+
+#define CTR 1
+#define AES256 1
+#include "aes.hpp"
+
 #ifdef WIN32
 #include <io.h>
 #include <fcntl.h>
@@ -32,6 +37,12 @@ bool invert_input = false;
 bool quiet = false;
 bool debug = false;
 bool noise_blanker = false;
+
+bool enc = true;
+uint8_t key[32] = { 0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4 };		
+uint8_t iv[16];
+struct AES_ctx ctx;
 
 enum class InputType {SYM, BIN, RRC};
 InputType inputType = InputType::RRC;
@@ -162,6 +173,16 @@ bool dump_lsf(std::array<T, N> const& lsf)
 
     current_packet.clear();
     packet_frame_counter = 0;
+	
+	if(enc){
+		//copy meta field [NONCE + CTR] and FN
+		std::copy(std::begin(lsf)+14,std::begin(lsf)+28,std::begin(iv));
+		iv[14] = 0;
+		iv[15] = 0;
+		
+		//init IV
+		AES_init_ctx_iv(&ctx, key, iv);
+	}
 
     if (!(lsf[13] & 1)) // LSF type bit 0
     {
@@ -204,10 +225,33 @@ bool demodulate_audio(mobilinkd::M17FrameDecoder::audio_buffer_t const& audio, i
     }
     else
     {
-        codec2_decode(codec2, buf.data(), audio.data() + 2);
-        std::cout.write((const char*)buf.data(), 320);
-        codec2_decode(codec2, buf.data(), audio.data() + 10);
-        std::cout.write((const char*)buf.data(), 320);
+		if(enc){
+			
+			mobilinkd::M17FrameDecoder::audio_buffer_t enc_audio;
+			
+			// get codec2 payload
+			std::copy(audio.begin()+2,audio.begin()+18, enc_audio.begin());
+			
+			uint8_t* p_payload = enc_audio.data();
+			
+			//update IV
+			iv[14] = audio[0];
+			iv[15] = audio[1];
+			AES_init_ctx_iv(&ctx, key, iv);
+		
+			AES_CTR_xcrypt_buffer(&ctx, p_payload, 16);
+			
+			codec2_decode(codec2, buf.data(), p_payload);
+			std::cout.write((const char*)buf.data(), 320);
+			codec2_decode(codec2, buf.data(), p_payload + 8);
+			std::cout.write((const char*)buf.data(), 320);
+			
+		}else{
+			codec2_decode(codec2, buf.data(), audio.data() + 2);
+			std::cout.write((const char*)buf.data(), 320);
+			codec2_decode(codec2, buf.data(), audio.data() + 10);
+			std::cout.write((const char*)buf.data(), 320);
+		}
     }
 
     return result;
@@ -322,6 +366,7 @@ bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int 
     switch (frame.type)
     {
         case FrameType::LSF:
+			AES_init_ctx_iv(&ctx, key, iv);
             result = dump_lsf(frame.lsf);
             break;
         case FrameType::LICH:
@@ -387,6 +432,9 @@ struct Config
     bool bin = false;
     bool sym = false;
     bool rrc = true; // default is rrc
+	
+	bool encrypt = false;
+	//uint8_t key[32] = {};
 
     static std::optional<Config> parse(int argc, char* argv[])
     {
@@ -406,6 +454,7 @@ struct Config
             ("bin,x", po::bool_switch(&result.bin), "input packed dibits (default is rrc).")
             ("rrc,r", po::bool_switch(&result.rrc), "input rrc filtered and scaled symbols (default).")
             ("sym,s", po::bool_switch(&result.sym), "input symbols (default is rrc).")
+			("encrypt,K",po::bool_switch(&result.encrypt), "encrypt codec2 payload with AES256 (default is no encryption).")
             ("verbose,v", po::bool_switch(&result.verbose), "verbose output")
             ("debug,d", po::bool_switch(&result.debug), "debug-level output")
             ("quiet,q", po::bool_switch(&result.quiet), "silence all output -- no BERT output")
@@ -483,6 +532,7 @@ int main(int argc, char* argv[])
     quiet = config->quiet;
     debug = config->debug;
     noise_blanker = config->noise_blanker;
+	enc = config->encrypt;
 
     if (config->sym) {
         inputType = InputType::SYM;

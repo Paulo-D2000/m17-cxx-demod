@@ -30,12 +30,24 @@
 
 #include <cstdlib>
 
+
+#define CTR 1
+#define AES256 1
+#include "aes.hpp"
+#include <chrono>
+#include <random>
+
 #ifdef WIN32
 #include <io.h>
 #include <fcntl.h>
 #endif
 
 #include <signal.h>
+
+uint8_t key[32] = { 0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4 };			
+uint8_t iv[16];
+struct AES_ctx ctx;
 
 // Generated using scikit-commpy
 const auto rrc_taps = std::array<double, 150>{
@@ -65,6 +77,10 @@ struct Config
     bool bert = false; // Bit error rate testing.
     bool invert = false;
     int can = 10;
+	
+	bool encrypt = false;
+	//uint8_t key[32] = {};
+	
 
     static std::optional<Config> parse(int argc, char* argv[])
     {
@@ -88,6 +104,7 @@ struct Config
                 "audio device (default is STDIN).")
             ("event,e", po::value<std::string>(&result.event_device)->default_value("/dev/input/by-id/usb-C-Media_Electronics_Inc._USB_Audio_Device-event-if03"),
                 "event device (default is C-Media Electronics Inc. USB Audio Device).")
+			("encrypt,K",po::bool_switch(&result.encrypt), "encrypt codec2 payload with AES256 (default is no encryption).")
             ("key,k", po::value<uint16_t>(&result.key)->default_value(385),
                 "Linux event code for PTT (default is RADIO).")
             ("bin,x", po::bool_switch(&result.bin), "output packed dibits (default is rrc).")
@@ -171,7 +188,14 @@ enum class OutputType {SYM, BIN, RRC};
 
 OutputType outputType = OutputType::RRC;
 bool invert = false;
+bool enc = false;
 int8_t can = 10;
+
+std::random_device dev;
+std::mt19937 rng(dev());
+std::uniform_int_distribution<uint32_t> uint_dist;
+
+
 
 void signal_handler(int)
 {
@@ -358,20 +382,29 @@ void output_eot()
             }
             break;
         case OutputType::BIN:
-            for (auto c : EOT_SYNC) std::cout << c;
+            for (size_t i = 0; i < 24; ++i) for (auto c : EOT_SYNC) std::cout << c;
             for (size_t i = 0; i !=10; ++i) std::cout << '\0'; // Flush RRC FIR Filter.
             break;
         default: 
             { // OutputType::RRC
-                std::array<int8_t, 48> out_symbols; // EOT symbols + FIR flush.
-                out_symbols.fill(0);
+                std::array<int8_t, 192> out_symbols;
                 auto symbols = bytes_to_symbols(EOT_SYNC);
-                for (size_t i = 0; i != symbols.size(); ++i)
+                auto repeat = out_symbols.size()/symbols.size();
+                for (size_t j = 0; j < repeat; j++)
                 {
-                    out_symbols[i] = symbols[i];
+                    auto offset = symbols.size()*j;
+                    for (size_t i = 0; i < symbols.size(); i++)
+                    {
+                        out_symbols[offset+i] = symbols[i];
+                    }
                 }
                 auto baseband = symbols_to_baseband(out_symbols);
                 for (auto b : baseband) std::cout << uint8_t(b & 0xFF) << uint8_t(b >> 8);
+				
+				std::array<int8_t, 192> flush_symbols;
+				flush_symbols.fill(0);
+				auto f_baseband = symbols_to_baseband(flush_symbols);
+                for (auto b : f_baseband) std::cout << uint8_t(b & 0xFF) << uint8_t(b >> 8);
             }
             break;
     }
@@ -412,6 +445,29 @@ lsf_t send_lsf(const std::string& src, const std::string& dest, const FrameType 
         result[12] = 0;
         result[13] = 1;
     }
+	
+	if(enc){
+		//set enc bits
+		result[13] = 4 | ((can & 1) << 7);
+		
+		uint32_t timestamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+		uint32_t random_data[2] = {uint_dist(rng), uint_dist(rng)};
+		uint16_t CTR_HIGH = uint_dist(rng);
+		
+		memcpy(iv, &timestamp, sizeof(uint32_t));
+		memcpy(iv+4, random_data, 2*sizeof(uint32_t));
+		memcpy(iv+12, &CTR_HIGH, sizeof(uint16_t));
+		
+		//frame number 
+		memset(iv+14, 0, sizeof(uint16_t));
+		
+		//copy META field
+		std::copy(std::begin(iv),std::end(iv)-2,result.begin()+14);
+		
+		//init IV
+		AES_init_ctx_iv(&ctx, key, iv);
+		
+	}
 
     crc.reset();
     for (size_t i = 0; i != 28; ++i)
@@ -479,7 +535,19 @@ data_frame_t make_data_frame(uint16_t frame_number, const codec_frame_t& payload
     std::array<uint8_t, 18> data;   // FN, Audio = 2 + 16;
     data[0] = uint8_t((frame_number >> 8) & 0xFF);
     data[1] = uint8_t(frame_number & 0xFF);
+	
     std::copy(payload.begin(), payload.end(), data.begin() + 2);
+
+	if(enc){
+		uint8_t* p_payload = data.data()+2;
+
+		//update IV with FN
+		iv[14] = uint8_t((frame_number >> 8) & 0xFF);
+		iv[15] = uint8_t(frame_number & 0xFF);
+		AES_init_ctx_iv(&ctx, key, iv);
+	
+		AES_CTR_xcrypt_buffer(&ctx, p_payload, 16);
+	}
 
     std::array<uint8_t, 296> encoded;
     size_t index = 0;
@@ -674,7 +742,7 @@ void transmit(queue_t& queue, const lsf_t& lsf)
             audio.fill(0);
         } 
     }
-
+	
     if (index > 0)
     {
         // send parial frame;
@@ -683,13 +751,13 @@ void transmit(queue_t& queue, const lsf_t& lsf)
         send_audio_frame(lich[lich_segment++], data);
         if (lich_segment == lich.size()) lich_segment = 0;
     }
-
+	
     // Last frame
     audio.fill(0);
     auto data = make_data_frame(frame_number | 0x8000, encode(codec2, audio));
     send_audio_frame(lich[lich_segment], data);
     output_eot();
-
+	
     codec2_destroy(codec2);
 }
 
@@ -732,6 +800,7 @@ int main(int argc, char* argv[])
 
     invert = config->invert;
     can = config->can;
+	enc = config->encrypt;
 
     signal(SIGINT, &signal_handler);
 

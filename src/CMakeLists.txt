@@ -1,5 +1,12 @@
 add_library(m17cxx INTERFACE)
 
+add_subdirectory(tiny-AES-c)
+
+target_include_directories(m17cxx INTERFACE
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/tiny-AES-c>
+    $<INSTALL_INTERFACE:include>
+    )
+
 target_include_directories(m17cxx INTERFACE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/m17cxx>
     $<INSTALL_INTERFACE:include>
