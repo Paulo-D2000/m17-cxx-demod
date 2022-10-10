@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.12)
 
-project(tiny-aes-c)
+project(tiny-AES-c)
 
 add_library(${PROJECT_NAME} "")
 target_sources(${PROJECT_NAME}
