@@ -10,6 +10,7 @@
 #include <boost/crc.hpp>
 #include <boost/program_options.hpp>
 #include <boost/optional.hpp>
+#include <boost/algorithm/hex.hpp>
 
 #include <array>
 #include <cstddef>
@@ -22,7 +23,6 @@
 
 
 #define CTR 1
-#define AES256 1
 #include "aes.hpp"
 
 #ifdef WIN32
@@ -38,10 +38,9 @@ bool quiet = false;
 bool debug = false;
 bool noise_blanker = false;
 
-bool enc = true;
-uint8_t key[32] = { 0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
-                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4 };		
-uint8_t iv[16];
+bool enc = false;
+uint8_t Key[32];	
+uint8_t Iv[16];
 struct AES_ctx ctx;
 
 enum class InputType {SYM, BIN, RRC};
@@ -176,12 +175,12 @@ bool dump_lsf(std::array<T, N> const& lsf)
 	
 	if(enc){
 		//copy meta field [NONCE + CTR] and FN
-		std::copy(std::begin(lsf)+14,std::begin(lsf)+28,std::begin(iv));
-		iv[14] = 0;
-		iv[15] = 0;
+		std::copy(std::begin(lsf)+14,std::begin(lsf)+28,std::begin(Iv));
+		Iv[14] = 0;
+		Iv[15] = 0;
 		
 		//init IV
-		AES_init_ctx_iv(&ctx, key, iv);
+		AES_init_ctx_iv(&ctx, Key, Iv);
 	}
 
     if (!(lsf[13] & 1)) // LSF type bit 0
@@ -235,9 +234,9 @@ bool demodulate_audio(mobilinkd::M17FrameDecoder::audio_buffer_t const& audio, i
 			uint8_t* p_payload = enc_audio.data();
 			
 			//update IV
-			iv[14] = audio[0];
-			iv[15] = audio[1];
-			AES_init_ctx_iv(&ctx, key, iv);
+			Iv[14] = audio[0];
+			Iv[15] = audio[1];
+			AES_init_ctx_iv(&ctx, Key, Iv);
 		
 			AES_CTR_xcrypt_buffer(&ctx, p_payload, 16);
 			
@@ -366,7 +365,6 @@ bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int 
     switch (frame.type)
     {
         case FrameType::LSF:
-			AES_init_ctx_iv(&ctx, key, iv);
             result = dump_lsf(frame.lsf);
             break;
         case FrameType::LICH:
@@ -433,8 +431,8 @@ struct Config
     bool sym = false;
     bool rrc = true; // default is rrc
 	
-	bool encrypt = false;
-	//uint8_t key[32] = {};
+	bool encrypt = false; //Default is no Encryption
+	std::string CKEY; //AES Key
 
     static std::optional<Config> parse(int argc, char* argv[])
     {
@@ -454,7 +452,7 @@ struct Config
             ("bin,x", po::bool_switch(&result.bin), "input packed dibits (default is rrc).")
             ("rrc,r", po::bool_switch(&result.rrc), "input rrc filtered and scaled symbols (default).")
             ("sym,s", po::bool_switch(&result.sym), "input symbols (default is rrc).")
-			("encrypt,K",po::bool_switch(&result.encrypt), "encrypt codec2 payload with AES256 (default is no encryption).")
+			("encrypt,K",po::value<std::string>(&result.CKEY), "hexadecimal string for AES 128, 192 or 256 Key (default is no encryption).")
             ("verbose,v", po::bool_switch(&result.verbose), "verbose output")
             ("debug,d", po::bool_switch(&result.debug), "debug-level output")
             ("quiet,q", po::bool_switch(&result.quiet), "silence all output -- no BERT output")
@@ -497,6 +495,29 @@ struct Config
             std::cerr << "Only one of sym, bin or rrc may be chosen." << std::endl;
             return std::nullopt;
         }
+		
+		switch(result.CKEY.length()/2){
+			default:
+				result.encrypt = false;
+				std::cerr << "No encryption." << std::endl;
+				break;
+			case 16:
+				result.encrypt = true;
+				#define AES128 1
+				std::cerr << "AES 128 KEY." << std::endl;
+				break;
+			case 24:
+				result.encrypt = true;
+				#define AES192 1
+				std::cerr << "AES 192 KEY." << std::endl;
+				break;
+				
+			case 32:
+				result.encrypt = true;
+				#define AES256 1
+				std::cerr << "AES 256 KEY." << std::endl;
+				break;
+			}
 
         return result;
     }
@@ -533,6 +554,9 @@ int main(int argc, char* argv[])
     debug = config->debug;
     noise_blanker = config->noise_blanker;
 	enc = config->encrypt;
+	
+	std::string hash = boost::algorithm::unhex(config->CKEY);
+	std::copy(hash.begin(), hash.end(), Key);
 
     if (config->sym) {
         inputType = InputType::SYM;

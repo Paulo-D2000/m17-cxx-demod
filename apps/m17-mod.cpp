@@ -18,6 +18,7 @@
 
 #include <boost/program_options.hpp>
 #include <boost/optional.hpp>
+#include <boost/algorithm/hex.hpp>
 
 #include <thread>
 
@@ -32,7 +33,6 @@
 
 
 #define CTR 1
-#define AES256 1
 #include "aes.hpp"
 #include <chrono>
 #include <random>
@@ -44,9 +44,8 @@
 
 #include <signal.h>
 
-uint8_t key[32] = { 0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
-                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4 };			
-uint8_t iv[16];
+uint8_t Key[32];	
+uint8_t Iv[16];
 struct AES_ctx ctx;
 
 // Generated using scikit-commpy
@@ -78,8 +77,8 @@ struct Config
     bool invert = false;
     int can = 10;
 	
-	bool encrypt = false;
-	//uint8_t key[32] = {};
+	bool encrypt = false; //Default is no Encryption
+	std::string CKEY; //AES Key
 	
 
     static std::optional<Config> parse(int argc, char* argv[])
@@ -104,7 +103,7 @@ struct Config
                 "audio device (default is STDIN).")
             ("event,e", po::value<std::string>(&result.event_device)->default_value("/dev/input/by-id/usb-C-Media_Electronics_Inc._USB_Audio_Device-event-if03"),
                 "event device (default is C-Media Electronics Inc. USB Audio Device).")
-			("encrypt,K",po::bool_switch(&result.encrypt), "encrypt codec2 payload with AES256 (default is no encryption).")
+			("encrypt,K",po::value<std::string>(&result.CKEY), "hexadecimal string for AES 128, 192 or 256 Key (default is no encryption).")
             ("key,k", po::value<uint16_t>(&result.key)->default_value(385),
                 "Linux event code for PTT (default is RADIO).")
             ("bin,x", po::bool_switch(&result.bin), "output packed dibits (default is rrc).")
@@ -172,6 +171,29 @@ struct Config
             std::cerr << "Only one of sym, bin or rrc may be chosen." << std::endl;
             return std::nullopt;
         }
+		
+		switch(result.CKEY.length()/2){
+			default:
+				result.encrypt = false;
+				std::cerr << "No encryption." << std::endl;
+				break;
+			case 16:
+				result.encrypt = true;
+				#define AES128 1
+				std::cerr << "AES 128 KEY." << std::endl;
+				break;
+			case 24:
+				result.encrypt = true;
+				#define AES192 1
+				std::cerr << "AES 192 KEY." << std::endl;
+				break;
+				
+			case 32:
+				result.encrypt = true;
+				#define AES256 1
+				std::cerr << "AES 256 KEY." << std::endl;
+				break;
+			}
 
 
         return result;
@@ -454,18 +476,18 @@ lsf_t send_lsf(const std::string& src, const std::string& dest, const FrameType 
 		uint32_t random_data[2] = {uint_dist(rng), uint_dist(rng)};
 		uint16_t CTR_HIGH = uint_dist(rng);
 		
-		memcpy(iv, &timestamp, sizeof(uint32_t));
-		memcpy(iv+4, random_data, 2*sizeof(uint32_t));
-		memcpy(iv+12, &CTR_HIGH, sizeof(uint16_t));
+		memcpy(Iv, &timestamp, sizeof(uint32_t));
+		memcpy(Iv+4, random_data, 2*sizeof(uint32_t));
+		memcpy(Iv+12, &CTR_HIGH, sizeof(uint16_t));
 		
 		//frame number 
-		memset(iv+14, 0, sizeof(uint16_t));
+		memset(Iv+14, 0, sizeof(uint16_t));
 		
 		//copy META field
-		std::copy(std::begin(iv),std::end(iv)-2,result.begin()+14);
+		std::copy(std::begin(Iv),std::end(Iv)-2,result.begin()+14);
 		
 		//init IV
-		AES_init_ctx_iv(&ctx, key, iv);
+		AES_init_ctx_iv(&ctx, Key, Iv);
 		
 	}
 
@@ -542,9 +564,9 @@ data_frame_t make_data_frame(uint16_t frame_number, const codec_frame_t& payload
 		uint8_t* p_payload = data.data()+2;
 
 		//update IV with FN
-		iv[14] = uint8_t((frame_number >> 8) & 0xFF);
-		iv[15] = uint8_t(frame_number & 0xFF);
-		AES_init_ctx_iv(&ctx, key, iv);
+		Iv[14] = uint8_t((frame_number >> 8) & 0xFF);
+		Iv[15] = uint8_t(frame_number & 0xFF);
+		AES_init_ctx_iv(&ctx, Key, Iv);
 	
 		AES_CTR_xcrypt_buffer(&ctx, p_payload, 16);
 	}
@@ -801,7 +823,10 @@ int main(int argc, char* argv[])
     invert = config->invert;
     can = config->can;
 	enc = config->encrypt;
-
+	
+	std::string hash = boost::algorithm::unhex(config->CKEY);
+	std::copy(hash.begin(), hash.end(), Key);
+	
     signal(SIGINT, &signal_handler);
 
     send_preamble();
