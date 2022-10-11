@@ -69,14 +69,18 @@ will output diagnostic information on a single line in the window.
 ## Testing the Modulator
 
     sox ~/m17-demodulator/brain.wav -t raw - |  ./m17-mod -S WX9O | ./m17-demod -l -d | play -q -b 16 -r 8000 -c1 -t s16 -
+    
+## Testing the Encryption
 
+    sox ~/m17-demodulator/brain.wav -t raw - |  ./m17-mod -S WX9O -K 603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4 | ./m17-demod -l -d -K 603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4 | play -q -b 16 -r 8000 -c1 -t s16 -
+    
 The input audio stream must be 1 channel, 16-bit, 8000 samples per second.
 
 Use `-S <callsign>` to set your source (callsign).
 
 Use `-b` to output a bitstream rather than baseband.
 
-Use `-K` to insert one key and output a AES256 Encrypted baseband.
+Use `-K <hexadecimal key string 16/24/32 bytes>` to insert one key and output a AES256 Encrypted baseband.
 
 Use `-h` to see the full help.  Many of the options do not yet work.
 
@@ -104,7 +108,7 @@ There are two command line options for the demodulator that determine the diagno
 
     -d causes demodulator diagnostics to be streamed to the terminal on STDERR.
     -l causes the link setup frame information (either from the first frame or LICH) to be displayed.
-    -K causes demodulator to try decrypting AES256 Encrypted baseband using the provided key.
+    -K <hexadecimal key string 16/24/32 bytes> causes demodulator to try decrypting AES256 Encrypted baseband using the provided key.
 
 Note that the oscillators on the PlutoSDR and on most RTL-SDR dongles are
 rather inaccurate.  You will need to have both tuned to the same frequency,
