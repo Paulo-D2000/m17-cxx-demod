@@ -80,7 +80,7 @@ Use `-S <callsign>` to set your source (callsign).
 
 Use `-b` to output a bitstream rather than baseband.
 
-Use `-K <hexadecimal key string 16/24/32 bytes>` to insert one key and output a AES256 Encrypted baseband.
+Use `-K <hexadecimal key string 16/24/32 bytes>` to insert one key and output a AES Encrypted baseband.
 
 Use `-h` to see the full help.  Many of the options do not yet work.
 
@@ -108,7 +108,7 @@ There are two command line options for the demodulator that determine the diagno
 
     -d causes demodulator diagnostics to be streamed to the terminal on STDERR.
     -l causes the link setup frame information (either from the first frame or LICH) to be displayed.
-    -K <hexadecimal key string 16/24/32 bytes> causes demodulator to try decrypting AES256 Encrypted baseband using the provided key.
+    -K <hexadecimal key string 16/24/32 bytes> causes demodulator to try decrypting AES encrypted baseband using the provided key. If no Key is provided encrypted streams are muted (no audio out).
 
 Note that the oscillators on the PlutoSDR and on most RTL-SDR dongles are
 rather inaccurate.  You will need to have both tuned to the same frequency,
