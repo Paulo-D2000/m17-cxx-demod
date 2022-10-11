@@ -38,10 +38,11 @@ bool quiet = false;
 bool debug = false;
 bool noise_blanker = false;
 
-bool enc = false;
+bool enc_key = false;
 uint8_t Key[32];	
 uint8_t Iv[16];
 struct AES_ctx ctx;
+bool frame_has_enc = false;
 
 enum class InputType {SYM, BIN, RRC};
 InputType inputType = InputType::RRC;
@@ -116,6 +117,20 @@ void dump_type(uint16_t type)
                 std::cerr << "V/D";
                 break;
         }
+		switch(3 & (type >> 3)){
+			case 0:
+				std::cerr << ", ENC:NONE,";
+				break;
+			case 1:
+				std::cerr << ", ENC:SCR,";
+				break;
+			case 2:
+				std::cerr << ", ENC:AES,";
+				break;
+			default:
+				std::cerr << ", ENC:UNK,";
+				break;
+		}
     }
     else
     {
@@ -140,12 +155,20 @@ void dump_type(uint16_t type)
     std::cerr << " CAN:" << std::dec << std::setw(2) << std::setfill('0') << int((type & 0x780) >> 7);
 }
 
+uint8_t last_FN[2];
+
 template <typename T, size_t N>
 bool dump_lsf(std::array<T, N> const& lsf)
 {
     using namespace mobilinkd;
     
     LinkSetupFrame::encoded_call_t encoded_call;
+	
+	frame_has_enc = false;
+	
+	uint16_t type = (lsf[12] << 8) | lsf[13];
+	
+	if((type & 1) && ((3 & (type >> 3)) != 0)) frame_has_enc = true;
 
     if (display_lsf)
     {
@@ -159,7 +182,6 @@ bool dump_lsf(std::array<T, N> const& lsf)
         std::cerr << ", DEST: ";
         for (auto x : dest) if (x) std::cerr << x;
 
-        uint16_t type = (lsf[12] << 8) | lsf[13];
         dump_type(type);
 
         std::cerr << ", NONCE: ";
@@ -173,11 +195,12 @@ bool dump_lsf(std::array<T, N> const& lsf)
     current_packet.clear();
     packet_frame_counter = 0;
 	
-	if(enc){
+  //if key and AES ENCRYPTION BITS are set
+	if(enc_key && frame_has_enc){
 		//copy meta field [NONCE + CTR] and FN
 		std::copy(std::begin(lsf)+14,std::begin(lsf)+28,std::begin(Iv));
-		Iv[14] = 0;
-		Iv[15] = 0;
+		Iv[14] = last_FN[0];
+		Iv[15] = last_FN[1];
 		
 		//init IV
 		AES_init_ctx_iv(&ctx, Key, Iv);
@@ -224,7 +247,7 @@ bool demodulate_audio(mobilinkd::M17FrameDecoder::audio_buffer_t const& audio, i
     }
     else
     {
-		if(enc){
+		if(enc_key && frame_has_enc){ //if -K provided and ENC bits set
 			
 			mobilinkd::M17FrameDecoder::audio_buffer_t enc_audio;
 			
@@ -244,8 +267,13 @@ bool demodulate_audio(mobilinkd::M17FrameDecoder::audio_buffer_t const& audio, i
 			std::cout.write((const char*)buf.data(), 320);
 			codec2_decode(codec2, buf.data(), p_payload + 8);
 			std::cout.write((const char*)buf.data(), 320);
-			
-		}else{
+		}
+		else if(frame_has_enc && !enc_key){  //if -K isn't provided but ENC bits set - MUTE
+			buf.fill(0);
+			std::cout.write((const char*)buf.data(), 320);
+			std::cout.write((const char*)buf.data(), 320);
+		}			
+		else{
 			codec2_decode(codec2, buf.data(), audio.data() + 2);
 			std::cout.write((const char*)buf.data(), 320);
 			codec2_decode(codec2, buf.data(), audio.data() + 10);
@@ -356,6 +384,8 @@ bool decode_bert(mobilinkd::M17FrameDecoder::bert_buffer_t const& bert)
     return true;
 }
 
+
+
 bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int viterbi_cost)
 {
     using FrameType = mobilinkd::M17FrameDecoder::FrameType;
@@ -371,6 +401,7 @@ bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int 
             std::cerr << "LICH" << std::endl;
             break;
         case FrameType::STREAM:
+			std::copy(frame.stream.begin(), frame.stream.begin()+2, last_FN);
             result = demodulate_audio(frame.stream, viterbi_cost);
             break;
         case FrameType::BASIC_PACKET:
@@ -553,7 +584,7 @@ int main(int argc, char* argv[])
     quiet = config->quiet;
     debug = config->debug;
     noise_blanker = config->noise_blanker;
-	enc = config->encrypt;
+	enc_key = config->encrypt;
 	
 	std::string hash = boost::algorithm::unhex(config->CKEY);
 	std::copy(hash.begin(), hash.end(), Key);

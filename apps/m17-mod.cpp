@@ -210,7 +210,7 @@ enum class OutputType {SYM, BIN, RRC};
 
 OutputType outputType = OutputType::RRC;
 bool invert = false;
-bool enc = false;
+bool enc_key = false;
 int8_t can = 10;
 
 std::random_device dev;
@@ -386,6 +386,7 @@ constexpr std::array<uint8_t, 2> EOT_SYNC = { 0x55, 0x5D };
 
 void output_eot()
 {
+	std::cerr << "Sending EOT." << std::endl;
     switch(outputType) {
         case OutputType::SYM:
             {
@@ -468,9 +469,9 @@ lsf_t send_lsf(const std::string& src, const std::string& dest, const FrameType 
         result[13] = 1;
     }
 	
-	if(enc){
-		//set enc bits
-		result[13] = 4 | ((can & 1) << 7);
+	if(enc_key){
+		//set enc bits 10 - AES
+		result[13] |= (1<<4);
 		
 		uint32_t timestamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 		uint32_t random_data[2] = {uint_dist(rng), uint_dist(rng)};
@@ -560,7 +561,7 @@ data_frame_t make_data_frame(uint16_t frame_number, const codec_frame_t& payload
 	
     std::copy(payload.begin(), payload.end(), data.begin() + 2);
 
-	if(enc){
+	if(enc_key){
 		uint8_t* p_payload = data.data()+2;
 
 		//update IV with FN
@@ -822,7 +823,7 @@ int main(int argc, char* argv[])
 
     invert = config->invert;
     can = config->can;
-	enc = config->encrypt;
+	enc_key = config->encrypt;
 	
 	std::string hash = boost::algorithm::unhex(config->CKEY);
 	std::copy(hash.begin(), hash.end(), Key);
