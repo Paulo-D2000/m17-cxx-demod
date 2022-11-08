@@ -389,14 +389,16 @@ bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int 
 
     switch (frame.type)
     {
-        case FrameType::LSF:
+        case FrameType::LSF:{
 		    std::copy(frame.lsf.begin(),frame.lsf.begin()+28,M17packet.LICH.begin());
             result = dump_lsf(frame.lsf);
+            }
             break;
-        case FrameType::LICH:
+        case FrameType::LICH:{
             std::cerr << "LICH" << std::endl;
-            break;
+            }break;
         case FrameType::STREAM:
+            {
             M17packet.FN = fromchar(frame.stream[1], frame.stream[0]);
             if(M17packet.FN & 0x8000){
                 M17packet.SID = rand()%UINT16_MAX;
@@ -412,17 +414,18 @@ bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int 
 			if(!m_socket->write((uint8_t*)std::string((char*)&M17packet, (char*)&M17packet+sizeof(M17_IP)).c_str(),sizeof(M17_IP), sockaddr, sockaddrLen)){
 				std::cerr << "ERROR SENDING DATA\n";
 			}
+            }
             //result = demodulate_audio(frame.stream, viterbi_cost);
             break;
-        case FrameType::BASIC_PACKET:
+        case FrameType::BASIC_PACKET:{
             result = decode_packet(frame.packet);
-            break;
-        case FrameType::FULL_PACKET:
+            }break;
+        case FrameType::FULL_PACKET:{
             result = decode_packet(frame.packet);
-            break;
-        case FrameType::BERT:
+            }break;
+        case FrameType::BERT:{
             result = decode_bert(frame.bert);
-            break;
+            }break;
     }
 
     return result;
