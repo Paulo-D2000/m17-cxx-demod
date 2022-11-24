@@ -392,40 +392,41 @@ bool handle_frame(mobilinkd::M17FrameDecoder::output_buffer_t const& frame, int 
         case FrameType::LSF:{
 		    std::copy(frame.lsf.begin(),frame.lsf.begin()+28,M17packet.LICH.begin());
             result = dump_lsf(frame.lsf);
-            }
-            break;
+        } break;
         case FrameType::LICH:{
             std::cerr << "LICH" << std::endl;
-            }break;
-        case FrameType::STREAM:
-            {
+        } break;
+        case FrameType::STREAM:{
+            result = true;
+            // First two bytes are the frame counter + EOS indicator.
             M17packet.FN = fromchar(frame.stream[1], frame.stream[0]);
-            if(M17packet.FN & 0x8000){
+            if (viterbi_cost < 70 && (fromchar(frame.stream[0], frame.stream[1]) & 0x8000)){
                 M17packet.SID = rand()%UINT16_MAX;
+                if (display_lsf) std::cerr << "\nEOS" << std::endl;
+                result = false;
             }
-            std::copy(frame.stream.begin()+2,frame.stream.begin()+18,M17packet.Payload.begin());
-            stream_crc.reset();
-            for (size_t i = 0; i != sizeof(M17_IP); ++i)
-            {
-                stream_crc(((char*)&M17packet)[i]);
+            if (viterbi_cost < 80){
+                std::copy(frame.stream.begin()+2,frame.stream.begin()+18,M17packet.Payload.begin());
+                stream_crc.reset();
+                for (size_t i = 0; i != sizeof(M17_IP); ++i){
+                    stream_crc(((char*)&M17packet)[i]);
+                }
+                auto crc_bytes = stream_crc.get_bytes();
+                std::copy((char*)&crc_bytes,(char*)&crc_bytes+2,(char*)&M17packet.CRC);
+                if(!m_socket->write((uint8_t*)std::string((char*)&M17packet, (char*)&M17packet+sizeof(M17_IP)).c_str(),sizeof(M17_IP), sockaddr, sockaddrLen)){
+                    std::cerr << "ERROR SENDING DATA\n";
+                }
             }
-			auto crc_bytes = stream_crc.get_bytes();
-            std::copy((char*)&crc_bytes,(char*)&crc_bytes+2,(char*)&M17packet.CRC);
-			if(!m_socket->write((uint8_t*)std::string((char*)&M17packet, (char*)&M17packet+sizeof(M17_IP)).c_str(),sizeof(M17_IP), sockaddr, sockaddrLen)){
-				std::cerr << "ERROR SENDING DATA\n";
-			}
-            }
-            //result = demodulate_audio(frame.stream, viterbi_cost);
-            break;
+        } break;
         case FrameType::BASIC_PACKET:{
             result = decode_packet(frame.packet);
-            }break;
+        } break;
         case FrameType::FULL_PACKET:{
             result = decode_packet(frame.packet);
-            }break;
+        } break;
         case FrameType::BERT:{
             result = decode_bert(frame.bert);
-            }break;
+        } break;
     }
 
     return result;
